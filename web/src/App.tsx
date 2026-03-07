@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   askQuestion,
   assignUserTenant,
+  chatStream,
   createTenant,
   createUser,
   decideApproval,
@@ -33,23 +34,57 @@ type StatusMessage = {
   params?: Record<string, string | number>;
 };
 
-const PANELS: Array<{ id: Panel; labelKey: string; descKey: string }> = [
-  { id: "workbench", labelKey: "panel.workbench", descKey: "panel.workbenchDesc" },
-  { id: "approvals", labelKey: "panel.approvals", descKey: "panel.approvalsDesc" },
-  { id: "audit", labelKey: "panel.audit", descKey: "panel.auditDesc" },
-  { id: "admin", labelKey: "panel.admin", descKey: "panel.adminDesc" }
+const PANELS: Array<{ id: Panel; labelKey: string }> = [
+  { id: "workbench", labelKey: "panel.workbench" },
+  { id: "approvals", labelKey: "panel.approvals" },
+  { id: "audit", labelKey: "panel.audit" },
+  { id: "admin", labelKey: "panel.admin" }
 ];
-
-const panelDomId = (id: Panel) => `panel-${id}`;
-const tabDomId = (id: Panel) => `tab-${id}`;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const roleTone = (role: string | null) => {
-  if (!role) return "muted";
-  if (role === "admin") return "good";
-  if (role === "auditor") return "warn";
-  return "neutral";
+/* ── Inline SVG Icons ───────────────────────────────────── */
+const IconChat = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+const IconShield = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);
+
+const IconClipboard = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <rect x="8" y="2" width="8" height="4" rx="1" />
+    <path d="M9 14h6M9 18h6M9 10h6" />
+  </svg>
+);
+
+const IconSettings = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const IconLogo = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+    <polyline points="2 17 12 22 22 17" />
+    <polyline points="2 12 12 17 22 12" />
+  </svg>
+);
+
+const NAV_ICONS: Record<Panel, () => JSX.Element> = {
+  workbench: IconChat,
+  approvals: IconShield,
+  audit: IconClipboard,
+  admin: IconSettings
 };
 
 export default function App() {
@@ -70,6 +105,9 @@ export default function App() {
   const [answer, setAnswer] = useState("");
   const [retrieved, setRetrieved] = useState<RetrievedChunk[]>([]);
   const [approvalId, setApprovalId] = useState<string | null>(null);
+
+  const [useStreaming, setUseStreaming] = useState(false);
+  const [streamController, setStreamController] = useState<AbortController | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [latestJob, setLatestJob] = useState<IngestJobResponse | null>(null);
@@ -204,6 +242,60 @@ export default function App() {
         setStatus({ key: "status.chatFailed" });
       }
     });
+  };
+
+  const handleAskStream = () => {
+    if (!question || !isAuthenticated) return;
+    if (streamController) streamController.abort();
+
+    setAnswer("");
+    setRetrieved([]);
+    setApprovalId(null);
+    setBusyAction("ask");
+    setStatus({ key: "status.retrievalRunning" });
+
+    let accumulated = "";
+    const controller = chatStream(question, tenantId, token, (event, data) => {
+      switch (event) {
+        case "retrieve_done":
+          setRetrieved(
+            ((data.retrieved as Array<{ text: string; score: number; source: string }>) || []).map(
+              (r) => ({ text: r.text, score: r.score, source: r.source })
+            )
+          );
+          setStatus({ key: "status.retrievalRunning" });
+          break;
+        case "generate_start":
+          setStatus({ key: "status.generating" });
+          break;
+        case "token":
+          accumulated += (data.text as string) || "";
+          setAnswer(accumulated);
+          break;
+        case "policy_blocked":
+          setAnswer(
+            "The generated response was withheld due to policy checks. Please contact an administrator."
+          );
+          setStatus({ key: "status.policyBlocked" });
+          setBusyAction(null);
+          break;
+        case "policy_passed":
+          setStatus({ key: "status.answerReady" });
+          break;
+        case "approval_required":
+          setApprovalId((data.approval_id as string) || null);
+          setAnswer(tt("workbench.pendingApprovalAnswer"));
+          setStatus({ key: "status.approvalRequired" });
+          setBusyAction(null);
+          break;
+        case "done":
+          setAnswer((data.answer as string) || accumulated);
+          setStatus({ key: "status.answerReady" });
+          setBusyAction(null);
+          break;
+      }
+    });
+    setStreamController(controller);
   };
 
   const handleRefreshApprovalResult = async () => {
@@ -350,87 +442,34 @@ export default function App() {
     });
   };
 
-  return (
-    <div className="shell">
-      <a href="#main-content" className="skip-link">
-        {tt("skip.main")}
-      </a>
+  const panelTitle = PANELS.find((p) => p.id === activePanel);
+  const isBusy = busyAction !== null;
 
-      <header className="hero" role="banner">
-        <div className="hero-main">
-          <div className="hero-topbar">
-            <p className="eyebrow">{tt("hero.eyebrow")}</p>
-            <div className="lang-switch" role="group" aria-label={tt("lang.switch")}> 
-              <button
-                type="button"
-                className={`lang-btn ${locale === "en" ? "active" : ""}`}
-                aria-pressed={locale === "en"}
-                onClick={() => setLocale("en")}
-                data-testid="lang-en"
-              >
-                {tt("lang.en")}
-              </button>
-              <button
-                type="button"
-                className={`lang-btn ${locale === "zh" ? "active" : ""}`}
-                aria-pressed={locale === "zh"}
-                onClick={() => setLocale("zh")}
-                data-testid="lang-zh"
-              >
-                {tt("lang.zh")}
-              </button>
+  /* ═══════════════════════════════════════════════════════════
+     LOGIN PAGE (unauthenticated)
+     ═══════════════════════════════════════════════════════════ */
+  if (!isAuthenticated) {
+    return (
+      <div className="app-shell">
+        <a href="#main-content" className="skip-link">{tt("skip.main")}</a>
+        <div className="login-page">
+          <div className="login-card animate-in">
+            <div className="login-header">
+              <div className="login-logo">
+                <IconLogo />
+              </div>
+              <h2>Complyra</h2>
+              <p>{tt("hero.desc")}</p>
             </div>
-          </div>
 
-          <h1>{tt("hero.title")}</h1>
-          <p>{tt("hero.desc")}</p>
-          <div className="tag-row" aria-label="capabilities">
-            <span className="tag">{tt("hero.tag.rbac")}</span>
-            <span className="tag">{tt("hero.tag.multitenant")}</span>
-            <span className="tag">{tt("hero.tag.approval")}</span>
-            <span className="tag">{tt("hero.tag.audit")}</span>
-          </div>
-        </div>
-
-        <aside className="hero-side" aria-label="session metrics">
-          <div className={`status-chip status-${roleTone(role)}`}>
-            {isAuthenticated ? tt("auth.as", { role: role || "" }) : tt("auth.guest")}
-          </div>
-          <p className="status-copy" aria-live="polite">
-            {tt(status.key, status.params)}
-          </p>
-          <div className="metrics-grid">
-            <article>
-              <h4>{tt("metrics.pendingApprovals")}</h4>
-              <strong>{approvals.length}</strong>
-            </article>
-            <article>
-              <h4>{tt("metrics.auditEvents")}</h4>
-              <strong>{auditLogs.length}</strong>
-            </article>
-            <article>
-              <h4>{tt("metrics.tenants")}</h4>
-              <strong>{tenants.length}</strong>
-            </article>
-            <article>
-              <h4>{tt("metrics.users")}</h4>
-              <strong>{users.length}</strong>
-            </article>
-          </div>
-        </aside>
-      </header>
-
-      <div className="workspace-layout">
-        <aside className="rail">
-          <section className="panel auth-panel" aria-label="auth form">
-            <h2>{tt("session.title")}</h2>
             <div className="field">
               <label htmlFor="login-username">{tt("session.username")}</label>
               <input
                 id="login-username"
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                placeholder="demo"
               />
             </div>
             <div className="field">
@@ -439,7 +478,7 @@ export default function App() {
                 id="login-password"
                 type="password"
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
               />
             </div>
@@ -448,110 +487,246 @@ export default function App() {
               <input
                 id="tenant-id"
                 value={tenantId}
-                onChange={(event) => setTenantId(event.target.value)}
+                onChange={(e) => setTenantId(e.target.value)}
+                placeholder="default"
               />
             </div>
-            <div className="actions">
+
+            <div className="login-actions">
               <button
+                className="btn-primary"
                 onClick={handleLogin}
-                disabled={isAuthenticated || busyAction === "login"}
+                disabled={busyAction === "login"}
                 data-testid="login-button"
               >
                 {busyAction === "login" ? tt("session.signingIn") : tt("session.signIn")}
               </button>
-              <button
-                className="ghost"
-                onClick={handleLogout}
-                disabled={!isAuthenticated || busyAction === "logout"}
-              >
-                {tt("session.signOut")}
-              </button>
             </div>
-          </section>
 
-          <section className="panel nav-panel" aria-label="workspace tabs">
-            <h2>{tt("workspace.title")}</h2>
-            <div className="tab-list" role="tablist" aria-label={tt("workspace.title")}>
-              {PANELS.map((panel) => (
+            {status.key !== "status.ready" && status.key !== "status.signedOut" && (
+              <p className="muted" style={{ marginTop: 12, textAlign: "center" }}>
+                {tt(status.key, status.params)}
+              </p>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+              <div className="lang-switch" role="group" aria-label={tt("lang.switch")}>
                 <button
-                  id={tabDomId(panel.id)}
-                  key={panel.id}
-                  className={`tab-btn ${activePanel === panel.id ? "active" : ""}`}
-                  onClick={() => setActivePanel(panel.id)}
                   type="button"
-                  role="tab"
-                  aria-selected={activePanel === panel.id}
-                  aria-controls={panelDomId(panel.id)}
-                  data-testid={panel.id === "admin" ? "tab-admin" : undefined}
+                  className={`lang-btn ${locale === "en" ? "active" : ""}`}
+                  aria-pressed={locale === "en"}
+                  onClick={() => setLocale("en")}
+                  data-testid="lang-en"
                 >
-                  <span>{tt(panel.labelKey)}</span>
-                  <small>{tt(panel.descKey)}</small>
+                  {tt("lang.en")}
                 </button>
-              ))}
+                <button
+                  type="button"
+                  className={`lang-btn ${locale === "zh" ? "active" : ""}`}
+                  aria-pressed={locale === "zh"}
+                  onClick={() => setLocale("zh")}
+                  data-testid="lang-zh"
+                >
+                  {tt("lang.zh")}
+                </button>
+              </div>
             </div>
-          </section>
-        </aside>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-        <main id="main-content" className="content" tabIndex={-1}>
-          {activePanel === "workbench" && (
-            <section
-              className="panel stack"
-              id={panelDomId("workbench")}
-              role="tabpanel"
-              aria-labelledby={tabDomId("workbench")}
+  /* ═══════════════════════════════════════════════════════════
+     MAIN APP (authenticated)
+     ═══════════════════════════════════════════════════════════ */
+  return (
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">{tt("skip.main")}</a>
+
+      {/* ── Sidebar ──────────────────────────────────────────── */}
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="logo-icon"><IconLogo /></div>
+          <div>
+            <h1>Complyra</h1>
+            <small>{tt("hero.eyebrow")}</small>
+          </div>
+        </div>
+
+        <div className="sidebar-section">
+          <div className="sidebar-label">{tt("workspace.title")}</div>
+          {PANELS.map((panel) => {
+            const Icon = NAV_ICONS[panel.id];
+            return (
+              <button
+                key={panel.id}
+                className={`nav-item ${activePanel === panel.id ? "active" : ""}`}
+                onClick={() => setActivePanel(panel.id)}
+                type="button"
+                role="tab"
+                aria-selected={activePanel === panel.id}
+                data-testid={panel.id === "admin" ? "tab-admin" : undefined}
+              >
+                <Icon />
+                <span>{tt(panel.labelKey)}</span>
+                {panel.id === "approvals" && approvals.length > 0 && (
+                  <span className="nav-badge">{approvals.length}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="sidebar-spacer" />
+
+        <div className="sidebar-divider" />
+
+        <div className="sidebar-metrics">
+          <div className="sidebar-metric">
+            <div className="metric-label">{tt("metrics.pendingApprovals")}</div>
+            <div className="metric-value">{approvals.length}</div>
+          </div>
+          <div className="sidebar-metric">
+            <div className="metric-label">{tt("metrics.auditEvents")}</div>
+            <div className="metric-value">{auditLogs.length}</div>
+          </div>
+          <div className="sidebar-metric">
+            <div className="metric-label">{tt("metrics.tenants")}</div>
+            <div className="metric-value">{tenants.length}</div>
+          </div>
+          <div className="sidebar-metric">
+            <div className="metric-label">{tt("metrics.users")}</div>
+            <div className="metric-value">{users.length}</div>
+          </div>
+        </div>
+
+        <div className="sidebar-divider" />
+
+        <div className="sidebar-user">
+          <div className="user-info">
+            <div className="user-avatar">
+              {(username || "U")[0].toUpperCase()}
+            </div>
+            <div>
+              <div className="user-name">{username}</div>
+              <div className="user-role">{role}</div>
+            </div>
+          </div>
+          <button
+            className="btn-logout"
+            onClick={handleLogout}
+            disabled={busyAction === "logout"}
+          >
+            {tt("session.signOut")}
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main Content ─────────────────────────────────────── */}
+      <div className="main-content">
+        <header className="topbar">
+          <h2 className="topbar-title">{panelTitle ? tt(panelTitle.labelKey) : ""}</h2>
+          <div className="topbar-spacer" />
+          <div className={`topbar-status ${isBusy ? "busy" : ""}`} aria-live="polite">
+            {tt(status.key, status.params)}
+            {isBusy && (
+              <span className="streaming-dot">
+                <span /><span /><span />
+              </span>
+            )}
+          </div>
+          <div className="lang-switch" role="group" aria-label={tt("lang.switch")}>
+            <button
+              type="button"
+              className={`lang-btn ${locale === "en" ? "active" : ""}`}
+              aria-pressed={locale === "en"}
+              onClick={() => setLocale("en")}
+              data-testid="lang-en"
             >
-              <div className="split-grid">
-                <article className="card">
+              {tt("lang.en")}
+            </button>
+            <button
+              type="button"
+              className={`lang-btn ${locale === "zh" ? "active" : ""}`}
+              aria-pressed={locale === "zh"}
+              onClick={() => setLocale("zh")}
+              data-testid="lang-zh"
+            >
+              {tt("lang.zh")}
+            </button>
+          </div>
+        </header>
+
+        <main id="main-content" className="content-area" tabIndex={-1}>
+          {/* ── Workbench ──────────────────────────────────── */}
+          {activePanel === "workbench" && (
+            <div className="stack animate-in">
+              <div className="grid-2">
+                <div className="card">
                   <h3>{tt("workbench.ingestTitle")}</h3>
-                  <p className="muted">{tt("workbench.ingestDesc")}</p>
+                  <p className="card-desc">{tt("workbench.ingestDesc")}</p>
                   <div className="field">
                     <label htmlFor="ingest-file">{tt("workbench.document")}</label>
                     <input
                       id="ingest-file"
                       type="file"
-                      onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                     />
                   </div>
                   <div className="actions">
                     <button
                       onClick={handleIngest}
-                      disabled={!isAuthenticated || !isAdmin || !file || busyAction === "ingest"}
+                      disabled={!isAdmin || !file || busyAction === "ingest"}
                     >
                       {busyAction === "ingest"
                         ? tt("workbench.submitting")
                         : tt("workbench.submitIngest")}
                     </button>
                   </div>
-                  {!isAdmin && isAuthenticated && (
-                    <p className="muted">{tt("workbench.adminRequiredIngest")}</p>
+                  {!isAdmin && (
+                    <p className="muted" style={{ marginTop: 8 }}>{tt("workbench.adminRequiredIngest")}</p>
                   )}
                   {latestJob && (
                     <div className="note">
                       <strong>{tt("workbench.job")}:</strong> {latestJob.job_id}
                       <br />
-                      <strong>{tt("workbench.jobStatus")}:</strong> {latestJob.status}
+                      <strong>{tt("workbench.jobStatus")}:</strong>{" "}
+                      <span className={`badge badge-${latestJob.status === "completed" ? "success" : latestJob.status === "failed" ? "warning" : "info"}`}>
+                        {latestJob.status}
+                      </span>
                     </div>
                   )}
-                </article>
+                </div>
 
-                <article className="card">
+                <div className="card">
                   <h3>{tt("workbench.askTitle")}</h3>
-                  <p className="muted">{tt("workbench.askDesc")}</p>
+                  <p className="card-desc">{tt("workbench.askDesc")}</p>
                   <div className="field">
                     <label htmlFor="question">{tt("workbench.question")}</label>
                     <textarea
                       id="question"
-                      rows={4}
+                      rows={3}
                       value={question}
-                      onChange={(event) => setQuestion(event.target.value)}
+                      onChange={(e) => setQuestion(e.target.value)}
                       placeholder={tt("workbench.questionPlaceholder")}
                       data-testid="question-input"
                     />
                   </div>
+                  <div className="field">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={useStreaming}
+                        onChange={(e) => setUseStreaming(e.target.checked)}
+                      />
+                      {tt("workbench.streamingMode")}
+                    </label>
+                  </div>
                   <div className="actions">
                     <button
-                      onClick={handleAsk}
-                      disabled={!isAuthenticated || !question || busyAction === "ask"}
+                      onClick={useStreaming ? handleAskStream : handleAsk}
+                      disabled={!question || busyAction === "ask"}
                       data-testid="run-query-button"
                     >
                       {busyAction === "ask" ? tt("workbench.thinking") : tt("workbench.runQuery")}
@@ -565,50 +740,58 @@ export default function App() {
                     </button>
                   </div>
                   {approvalId && (
-                    <p className="muted">
-                      {tt("workbench.approvalId")}: {approvalId}
+                    <p className="muted" style={{ marginTop: 8 }}>
+                      {tt("workbench.approvalId")}: <code>{approvalId}</code>
                     </p>
                   )}
-                </article>
+                </div>
               </div>
 
-              <article className="card">
+              <div className="card response-card">
                 <h3>{tt("workbench.responseTitle")}</h3>
-                <p data-testid="answer-content">{answer || tt("workbench.noAnswer")}</p>
-                <div className="context-list">
+                <div style={{ marginTop: 12 }}>
+                  {answer ? (
+                    <p className={`response-text ${busyAction === "ask" ? "typing-cursor" : ""}`} data-testid="answer-content">
+                      {answer}
+                    </p>
+                  ) : (
+                    <p className="response-empty muted" data-testid="answer-content">{tt("workbench.noAnswer")}</p>
+                  )}
+                </div>
+
+                <div className="context-section">
+                  <h4>{tt("workbench.noChunks").replace("No retrieval chunks yet.", "Retrieved Contexts").replace("暂无检索片段。", "检索上下文")}</h4>
                   {retrieved.length === 0 ? (
                     <p className="muted">{tt("workbench.noChunks")}</p>
                   ) : (
-                    retrieved.map((item, index) => (
-                      <article key={`${index}-${item.score}`} className="context-item">
-                        <span className="score">{item.score.toFixed(3)}</span>
-                        <p>{item.text}</p>
-                        {item.source && <small>{item.source}</small>}
-                      </article>
-                    ))
+                    <div className="context-list">
+                      {retrieved.map((item, index) => (
+                        <article key={`${index}-${item.score}`} className="context-item">
+                          <span className="score">{item.score.toFixed(3)}</span>
+                          <p>{item.text}</p>
+                          {item.source && <small>{item.source}</small>}
+                        </article>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </article>
-            </section>
+              </div>
+            </div>
           )}
 
+          {/* ── Approvals ──────────────────────────────────── */}
           {activePanel === "approvals" && (
-            <section
-              className="panel stack"
-              id={panelDomId("approvals")}
-              role="tabpanel"
-              aria-labelledby={tabDomId("approvals")}
-            >
-              <article className="card">
-                <div className="row">
+            <div className="stack animate-in">
+              <div className="card">
+                <div className="card-header">
                   <div>
                     <h3>{tt("approvals.title")}</h3>
-                    <p className="muted">{tt("approvals.desc")}</p>
+                    <p className="card-desc">{tt("approvals.desc")}</p>
                   </div>
                   <button
                     className="ghost"
                     onClick={handleLoadApprovals}
-                    disabled={!isAuthenticated || !canApprove || busyAction === "approvals"}
+                    disabled={!canApprove || busyAction === "approvals"}
                   >
                     {tt("approvals.refresh")}
                   </button>
@@ -619,12 +802,13 @@ export default function App() {
                   <input
                     id="approval-note"
                     value={approvalNote}
-                    onChange={(event) => setApprovalNote(event.target.value)}
+                    onChange={(e) => setApprovalNote(e.target.value)}
+                    placeholder={locale === "zh" ? "可选：添加审批备注" : "Optional: add a note"}
                   />
                 </div>
 
-                {!canApprove && isAuthenticated && (
-                  <p className="muted">{tt("approvals.noPermission")}</p>
+                {!canApprove && (
+                  <p className="muted" style={{ marginTop: 12 }}>{tt("approvals.noPermission")}</p>
                 )}
 
                 <div className="approval-list">
@@ -633,22 +817,25 @@ export default function App() {
                   ) : (
                     approvals.map((approval) => (
                       <article className="approval-item" key={approval.approval_id}>
-                        <p className="muted">{approval.approval_id}</p>
-                        <p>
-                          <strong>{tt("approvals.question")}:</strong> {approval.question}
-                        </p>
-                        <p>
-                          <strong>{tt("approvals.draft")}:</strong> {approval.draft_answer}
-                        </p>
-                        <div className="actions">
+                        <div className="approval-id">{approval.approval_id}</div>
+                        <div>
+                          <strong>{tt("approvals.question")}</strong>
+                          <p>{approval.question}</p>
+                        </div>
+                        <div>
+                          <strong>{tt("approvals.draft")}</strong>
+                          <p>{approval.draft_answer}</p>
+                        </div>
+                        <div className="approval-actions">
                           <button
+                            className="btn-success btn-sm"
                             onClick={() => handleDecision(approval, true)}
                             disabled={!canApprove}
                           >
                             {tt("approvals.approve")}
                           </button>
                           <button
-                            className="ghost"
+                            className="btn-danger btn-sm"
                             onClick={() => handleDecision(approval, false)}
                             disabled={!canApprove}
                           >
@@ -659,34 +846,30 @@ export default function App() {
                     ))
                   )}
                 </div>
-              </article>
-            </section>
+              </div>
+            </div>
           )}
 
+          {/* ── Audit ──────────────────────────────────────── */}
           {activePanel === "audit" && (
-            <section
-              className="panel stack"
-              id={panelDomId("audit")}
-              role="tabpanel"
-              aria-labelledby={tabDomId("audit")}
-            >
-              <article className="card">
-                <div className="row">
+            <div className="stack animate-in">
+              <div className="card">
+                <div className="card-header">
                   <div>
                     <h3>{tt("audit.title")}</h3>
-                    <p className="muted">{tt("audit.desc")}</p>
+                    <p className="card-desc">{tt("audit.desc")}</p>
                   </div>
                   <button
                     className="ghost"
                     onClick={handleAudit}
-                    disabled={!isAuthenticated || busyAction === "audit"}
+                    disabled={busyAction === "audit"}
                   >
                     {tt("audit.refresh")}
                   </button>
                 </div>
 
                 {auditLogs.length === 0 ? (
-                  <p className="muted">{tt("audit.empty")}</p>
+                  <p className="muted" style={{ marginTop: 16 }}>{tt("audit.empty")}</p>
                 ) : (
                   <div className="table-wrap">
                     <table>
@@ -706,7 +889,9 @@ export default function App() {
                             <td>{formatTimestamp(log.timestamp)}</td>
                             <td>{log.tenant_id}</td>
                             <td>{log.user}</td>
-                            <td>{log.action}</td>
+                            <td>
+                              <span className="badge badge-info">{log.action}</span>
+                            </td>
                             <td>{log.input_text}</td>
                           </tr>
                         ))}
@@ -714,122 +899,124 @@ export default function App() {
                     </table>
                   </div>
                 )}
-              </article>
-            </section>
+              </div>
+            </div>
           )}
 
+          {/* ── Admin ──────────────────────────────────────── */}
           {activePanel === "admin" && (
-            <section
-              className="panel stack"
-              id={panelDomId("admin")}
-              role="tabpanel"
-              aria-labelledby={tabDomId("admin")}
-              data-testid="admin-panel"
-            >
-              <article className="card">
-                <h3>{tt("admin.title")}</h3>
-                {!isAdmin && isAuthenticated && (
+            <div className="stack animate-in" data-testid="admin-panel">
+              {!isAdmin && (
+                <div className="card">
                   <p className="muted">{tt("admin.noPermission")}</p>
-                )}
+                </div>
+              )}
 
-                <div className="split-grid">
-                  <section className="sub-card">
-                    <div className="row">
-                      <h4>{tt("admin.tenants")}</h4>
-                      <button
-                        className="ghost"
-                        onClick={handleLoadTenants}
-                        disabled={!isAdmin || busyAction === "tenants"}
-                      >
-                        {tt("admin.load")}
-                      </button>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="tenant-name">{tt("admin.newTenant")}</label>
-                      <input
-                        id="tenant-name"
-                        value={tenantName}
-                        onChange={(event) => setTenantName(event.target.value)}
-                      />
-                    </div>
+              <div className="grid-2">
+                {/* Tenants */}
+                <div className="sub-card">
+                  <div className="row">
+                    <h4>{tt("admin.tenants")}</h4>
+                    <button
+                      className="ghost btn-sm"
+                      onClick={handleLoadTenants}
+                      disabled={!isAdmin || busyAction === "tenants"}
+                    >
+                      {tt("admin.load")}
+                    </button>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="tenant-name">{tt("admin.newTenant")}</label>
+                    <input
+                      id="tenant-name"
+                      value={tenantName}
+                      onChange={(e) => setTenantName(e.target.value)}
+                    />
+                  </div>
+                  <div className="actions">
                     <button
                       onClick={handleCreateTenant}
                       disabled={!isAdmin || !tenantName || busyAction === "tenant-create"}
                     >
                       {tt("admin.createTenant")}
                     </button>
-                    <ul className="list">
-                      {tenants.map((tenant) => (
-                        <li key={tenant.tenant_id}>
-                          <strong>{tenant.name}</strong>
-                          <span>{tenant.tenant_id}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                  </div>
+                  <ul className="item-list">
+                    {tenants.map((tenant) => (
+                      <li key={tenant.tenant_id}>
+                        <strong>{tenant.name}</strong>
+                        <span>{tenant.tenant_id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-                  <section className="sub-card">
-                    <div className="row">
-                      <h4>{tt("admin.users")}</h4>
-                      <button
-                        className="ghost"
-                        onClick={handleLoadUsers}
-                        disabled={!isAdmin || busyAction === "users"}
-                        data-testid="load-users-button"
-                      >
-                        {tt("admin.load")}
-                      </button>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="new-user-name">{tt("admin.newUser")}</label>
-                      <input
-                        id="new-user-name"
-                        value={newUserName}
-                        onChange={(event) => setNewUserName(event.target.value)}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="new-user-password">{tt("admin.newPassword")}</label>
-                      <input
-                        id="new-user-password"
-                        type="password"
-                        value={newUserPassword}
-                        onChange={(event) => setNewUserPassword(event.target.value)}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="new-user-role">{tt("admin.role")}</label>
-                      <select
-                        id="new-user-role"
-                        value={newUserRole}
-                        onChange={(event) => setNewUserRole(event.target.value)}
-                      >
-                        <option value="admin">admin</option>
-                        <option value="user">user</option>
-                        <option value="auditor">auditor</option>
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="new-user-default-tenant">{tt("admin.defaultTenant")}</label>
-                      <input
-                        id="new-user-default-tenant"
-                        value={newUserDefaultTenant}
-                        onChange={(event) => setNewUserDefaultTenant(event.target.value)}
-                      />
-                    </div>
+                {/* Users */}
+                <div className="sub-card">
+                  <div className="row">
+                    <h4>{tt("admin.users")}</h4>
+                    <button
+                      className="ghost btn-sm"
+                      onClick={handleLoadUsers}
+                      disabled={!isAdmin || busyAction === "users"}
+                      data-testid="load-users-button"
+                    >
+                      {tt("admin.load")}
+                    </button>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="new-user-name">{tt("admin.newUser")}</label>
+                    <input
+                      id="new-user-name"
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="new-user-password">{tt("admin.newPassword")}</label>
+                    <input
+                      id="new-user-password"
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="new-user-role">{tt("admin.role")}</label>
+                    <select
+                      id="new-user-role"
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value)}
+                    >
+                      <option value="admin">admin</option>
+                      <option value="user">user</option>
+                      <option value="auditor">auditor</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="new-user-default-tenant">{tt("admin.defaultTenant")}</label>
+                    <input
+                      id="new-user-default-tenant"
+                      value={newUserDefaultTenant}
+                      onChange={(e) => setNewUserDefaultTenant(e.target.value)}
+                    />
+                  </div>
+                  <div className="actions">
                     <button
                       onClick={handleCreateUser}
                       disabled={!isAdmin || !newUserName || !newUserPassword || busyAction === "user-create"}
                     >
                       {tt("admin.createUser")}
                     </button>
+                  </div>
 
-                    <div className="field compact-top">
+                  <div className="compact-top">
+                    <div className="field">
                       <label htmlFor="assign-user-id">{tt("admin.assignUserId")}</label>
                       <input
                         id="assign-user-id"
                         value={assignUserId}
-                        onChange={(event) => setAssignUserId(event.target.value)}
+                        onChange={(e) => setAssignUserId(e.target.value)}
                       />
                     </div>
                     <div className="field">
@@ -837,38 +1024,36 @@ export default function App() {
                       <input
                         id="assign-tenant-id"
                         value={assignTenantId}
-                        onChange={(event) => setAssignTenantId(event.target.value)}
+                        onChange={(e) => setAssignTenantId(e.target.value)}
                       />
                     </div>
-                    <button
-                      className="ghost"
-                      onClick={handleAssignTenant}
-                      disabled={!isAdmin || !assignUserId || !assignTenantId || busyAction === "tenant-assign"}
-                    >
-                      {tt("admin.assignTenant")}
-                    </button>
+                    <div className="actions">
+                      <button
+                        className="ghost"
+                        onClick={handleAssignTenant}
+                        disabled={!isAdmin || !assignUserId || !assignTenantId || busyAction === "tenant-assign"}
+                      >
+                        {tt("admin.assignTenant")}
+                      </button>
+                    </div>
+                  </div>
 
-                    <ul className="list" data-testid="admin-users-list">
-                      {users.map((entry) => (
-                        <li key={entry.user_id}>
-                          <strong>
-                            {entry.username} ({entry.role})
-                          </strong>
-                          <span>{entry.tenant_ids.join(", ") || tt("admin.noTenants")}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                  <ul className="item-list" data-testid="admin-users-list">
+                    {users.map((entry) => (
+                      <li key={entry.user_id}>
+                        <strong>
+                          {entry.username} ({entry.role})
+                        </strong>
+                        <span>{entry.tenant_ids.join(", ") || tt("admin.noTenants")}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </article>
-            </section>
+              </div>
+            </div>
           )}
         </main>
       </div>
-
-      <footer className="status-bar" aria-live="polite">
-        {tt(status.key, status.params)}
-      </footer>
     </div>
   );
 }

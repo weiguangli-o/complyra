@@ -13,8 +13,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-      ollama:
-        condition: service_started
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -22,6 +20,11 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
 
   worker:
     build: .
@@ -36,10 +39,13 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-      ollama:
-        condition: service_started
     volumes:
       - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
 
   web:
     build:
@@ -54,6 +60,11 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
 
   postgres:
     image: postgres:16
@@ -71,6 +82,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
 
   redis:
     image: redis:7
@@ -82,6 +98,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
 
   qdrant:
     image: qdrant/qdrant:v1.12.6
@@ -90,14 +111,16 @@ services:
       - "6333:6333"
     volumes:
       - ./data/qdrant:/qdrant/storage
-
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./data/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6333/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
 
   prometheus:
     image: prom/prometheus:v2.53.3
@@ -107,6 +130,11 @@ services:
       - ./ops/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
     ports:
       - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -115,3 +143,8 @@ services:
       - "3000:3000"
     volumes:
       - ./ops/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"

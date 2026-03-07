@@ -1,8 +1,14 @@
+"""Document ingestion pipeline.
+
+Handles text extraction (PDF, plain text), chunking with overlap,
+filename sanitization, and vector upsert into Qdrant.
+"""
+
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
-import re
 from typing import List, Tuple
 
 from pypdf import PdfReader

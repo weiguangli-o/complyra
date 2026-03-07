@@ -1,3 +1,5 @@
+"""FastAPI dependency injection for authentication and tenant resolution."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

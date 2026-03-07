@@ -1,3 +1,9 @@
+"""User and tenant management service.
+
+Provides authentication, profile lookup, tenant assignment,
+and CRUD operations for users and tenants.
+"""
+
 from __future__ import annotations
 
 from typing import Optional

@@ -39,3 +39,32 @@ def test_output_policy_can_be_disabled() -> None:
     finally:
         settings.output_policy_enabled = original_enabled
         settings.output_policy_block_patterns = original_patterns
+
+
+def test_output_policy_empty_patterns_passes() -> None:
+    original = list(settings.output_policy_block_patterns)
+    original_enabled = settings.output_policy_enabled
+    settings.output_policy_enabled = True
+    settings.output_policy_block_patterns = []
+
+    try:
+        evaluation = evaluate_output_policy("AKIA1234567890ABCDEF")
+        assert evaluation.blocked is False
+    finally:
+        settings.output_policy_block_patterns = original
+        settings.output_policy_enabled = original_enabled
+
+
+def test_output_policy_no_match_passes() -> None:
+    original = list(settings.output_policy_block_patterns)
+    original_enabled = settings.output_policy_enabled
+    settings.output_policy_enabled = True
+    settings.output_policy_block_patterns = [r"NEVER_MATCH_THIS_PATTERN_XYZ"]
+
+    try:
+        evaluation = evaluate_output_policy("This is a safe answer")
+        assert evaluation.blocked is False
+        assert evaluation.matched_rules == []
+    finally:
+        settings.output_policy_block_patterns = original
+        settings.output_policy_enabled = original_enabled

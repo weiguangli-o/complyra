@@ -165,3 +165,48 @@ export async function assignUserTenant(userId: string, tenantId: string, token?:
     { headers: authHeaders(token) }
   );
 }
+
+/**
+ * Stream chat via SSE. Returns an AbortController to cancel the stream.
+ */
+export function chatStream(
+  question: string,
+  tenantId: string,
+  token: string | null,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+): AbortController {
+  const controller = new AbortController();
+  fetch(`${apiBase}/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+      "X-Tenant-ID": tenantId,
+    },
+    body: JSON.stringify({ question }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop()!;
+      for (const block of blocks) {
+        const eventMatch = block.match(/^event: (.+)$/m);
+        const dataMatch = block.match(/^data: (.+)$/m);
+        if (eventMatch && dataMatch) {
+          onEvent(eventMatch[1], JSON.parse(dataMatch[1]));
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== "AbortError") {
+      console.error("SSE stream error:", err);
+    }
+  });
+  return controller;
+}

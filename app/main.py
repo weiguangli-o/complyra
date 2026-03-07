@@ -1,3 +1,5 @@
+"""FastAPI application factory and startup lifecycle."""
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +41,15 @@ async def app_lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     setup_logging()
+
+    # Enable LangSmith tracing when configured — sets env vars that LangGraph reads automatically
+    if settings.langsmith_tracing and settings.langsmith_api_key:
+        import os
+
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+        logger.info("LangSmith tracing enabled for project '%s'", settings.langsmith_project)
 
     if settings.sentry_dsn:
         sentry_sdk.init(

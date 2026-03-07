@@ -1,3 +1,5 @@
+"""Pydantic request/response schemas for all API endpoints."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,6 +9,8 @@ from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
+    """Credentials for the login endpoint."""
+
     username: str
     password: str
 
@@ -108,6 +112,13 @@ class UserResponse(BaseModel):
     default_tenant_id: Optional[str] = None
     tenant_ids: list[str]
     created_at: datetime
+
+
+class StreamEvent(BaseModel):
+    """Schema for SSE stream events sent by ``POST /chat/stream``."""
+
+    event: str
+    data: dict
 
 
 class AssignTenantRequest(BaseModel):

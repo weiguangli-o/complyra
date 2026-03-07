@@ -1,185 +1,202 @@
 # Complyra
 
-Production-oriented enterprise private knowledge assistant with governed AI responses.
+[![CI](https://github.com/complyra/complyra/actions/workflows/ci.yml/badge.svg)](https://github.com/complyra/complyra/actions/workflows/ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Complyra combines multi-tenant RAG, approval workflow, RBAC, auditability, observability, and cloud-ready deployment automation.
+**Production-grade enterprise RAG assistant with governed AI responses.**
 
-## Project Status
-
-- Application stack: ready
-- Local validation: passed
-- IaC (Terraform + policy gate): ready
-- AWS deployment blocker: AWS account + credentials + domain/certificate provisioning
-
-## Table of Contents
-
-- [Key Features](#key-features)
-- [Technology Stack](#technology-stack)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Quick Start (Docker)](#quick-start-docker)
-- [Quick Start (Local Development)](#quick-start-local-development)
-- [Production Deployment (AWS)](#production-deployment-aws)
-- [Security and Governance](#security-and-governance)
-- [Documentation Index](#documentation-index)
-- [Verification](#verification)
-- [License](#license)
-
-## Key Features
-
-- Multi-tenant knowledge ingestion and retrieval (`X-Tenant-ID` scoped)
-- Human-in-the-loop approval workflow (LangGraph)
-- RBAC roles: `admin`, `auditor`, `user`
-- Audit search + CSV export for compliance operations
-- Async ingest jobs (Redis + RQ worker)
-- Metrics, health probes, Sentry support, Prometheus/Grafana
-- Output policy guard for potentially sensitive generated content
-
-## Technology Stack
-
-- Backend: FastAPI, Uvicorn, Pydantic v2
-- Workflow: LangGraph
-- Data: PostgreSQL + SQLAlchemy + Alembic
-- Vector DB: Qdrant
-- Queue: Redis + RQ
-- LLM runtime: Ollama (`qwen2.5:3b-instruct`)
-- Embeddings: `BAAI/bge-small-en-v1.5`
-- Frontend: React + TypeScript + Vite + Nginx
-- Observability: Prometheus, Grafana, optional Sentry
-- IaC: Terraform + OPA/Conftest
+Complyra combines multi-tenant retrieval-augmented generation, human-in-the-loop approval workflow, RBAC, full audit logging, and cloud-ready deployment automation — built for compliance-sensitive environments.
 
 ## Architecture
 
-```text
-Web UI
-  -> API Gateway (FastAPI)
-    -> AuthN/AuthZ (JWT + RBAC)
-    -> LangGraph workflow (retrieve -> draft -> policy gate -> approval -> final)
-    -> Audit service (PostgreSQL)
-    -> Ingest API (enqueue)
-       -> Redis queue -> worker -> chunk/embed -> Qdrant
+```mermaid
+graph LR
+    subgraph Frontend
+        UI[React SPA]
+    end
 
-Observability
-  Prometheus <- /metrics
-  Grafana    <- Prometheus
-  Sentry     <- exceptions (optional)
-  CloudWatch Synthetics <- login/chat/approval journey checks
+    subgraph API Layer
+        GW[FastAPI Gateway]
+        Auth[JWT + RBAC]
+    end
+
+    subgraph Workflow
+        LG[LangGraph]
+        R[Retrieve]
+        D[Draft]
+        P[Policy Gate]
+        A[Approval]
+    end
+
+    subgraph Data
+        QD[Qdrant Vector DB]
+        PG[PostgreSQL]
+        RD[Redis Queue]
+    end
+
+    subgraph LLM
+        OL[Ollama]
+        EMB[Embeddings BGE/OpenAI]
+    end
+
+    subgraph Observability
+        PR[Prometheus]
+        GR[Grafana]
+        LS[LangSmith]
+        SE[Sentry]
+    end
+
+    UI -->|HTTP/SSE| GW
+    GW --> Auth --> LG
+    LG --> R --> QD
+    LG --> D --> OL
+    LG --> P
+    LG --> A --> PG
+    R --> EMB
+    GW -->|Audit| PG
+    GW -->|Ingest Jobs| RD
+    GW -->|/metrics| PR
+    PR --> GR
+    LG -.->|Traces| LS
+    GW -.->|Errors| SE
 ```
 
-## Repository Structure
+## Features
 
-```text
-app/                backend API, services, DB access, models
-alembic/            DB migrations
-web/                React frontend
-ops/                Prometheus/Grafana provisioning
-infra/
-  terraform/        full-stack AWS IaC
-  policy/           OPA/Conftest policy gate rules
-  ecs/              ECS task definition templates
-  synthetics/       CloudWatch Synthetics canary scripts
-docs/               architecture, deployment runbooks, checklists
-scripts/            AWS and IaC automation scripts
-tests/              test suite
-```
+- **Multi-tenant RAG** — tenant-scoped document ingestion and retrieval via `X-Tenant-ID`
+- **Human-in-the-loop approval** — LangGraph workflow with configurable approval gates
+- **Pluggable embeddings** — SentenceTransformer (BGE) or OpenAI API, switchable via config
+- **SSE streaming** — real-time token-by-token chat via `POST /chat/stream`
+- **RBAC** — three roles: `admin`, `auditor`, `user`
+- **Output policy guard** — regex-based detection of secrets, API keys, and credentials
+- **Audit trail** — full event logging with search and CSV export
+- **Async ingestion** — Redis + RQ worker for background document processing
+- **LangSmith tracing** — optional LLM observability with zero code overhead
+- **Observability** — Prometheus metrics, Grafana dashboards, Sentry error tracking
 
-## Quick Start (Docker)
+## Quick Start
+
+### Docker Compose (recommended)
 
 ```bash
-cd /Users/liweiguang/aiagent/complyra
+git clone https://github.com/complyra/complyra.git
+cd complyra
 cp .env.example .env
 docker compose up --build -d
 ```
 
-Endpoints:
+| Service      | URL                                      |
+|-------------|------------------------------------------|
+| Web UI      | http://localhost:5173                     |
+| API Docs    | http://localhost:8000/docs                |
+| Health      | http://localhost:8000/api/health/live     |
+| Prometheus  | http://localhost:9090                     |
+| Grafana     | http://localhost:3000                     |
 
-- Web: `http://localhost:5173`
-- API docs: `http://localhost:8000/docs`
-- Live health: `http://localhost:8000/api/health/live`
-- Ready health: `http://localhost:8000/api/health/ready`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+Default credentials: `demo` / `demo123`
 
-## Quick Start (Local Development)
-
-Backend:
+### Local Development
 
 ```bash
-cd /Users/liweiguang/aiagent/complyra
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# Backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 cp .env.example .env
-.venv/bin/alembic upgrade head
-./scripts/pull_ollama_model.sh qwen2.5:3b-instruct
+alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend
+cd web && npm install && npm run dev
 ```
 
-Frontend:
+## Configuration
+
+All settings use the `APP_` prefix. See [`.env.example`](.env.example) for the full list.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_EMBEDDING_PROVIDER` | `sentence-transformers` | `sentence-transformers` or `openai` |
+| `APP_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Local SentenceTransformer model name |
+| `APP_OPENAI_API_KEY` | *(empty)* | Required when `embedding_provider=openai` |
+| `APP_OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI model for embeddings |
+| `APP_EMBEDDING_DIMENSION` | `384` | Vector dimension (384 for BGE, 1536 for OpenAI) |
+| `APP_OLLAMA_MODEL` | `qwen2.5:3b-instruct` | Ollama LLM model |
+| `APP_REQUIRE_APPROVAL` | `true` | Enable human-in-the-loop approval |
+| `APP_OUTPUT_POLICY_ENABLED` | `true` | Enable output policy checks |
+| `APP_LANGSMITH_TRACING` | `false` | Enable LangSmith tracing |
+| `APP_LANGSMITH_API_KEY` | *(empty)* | LangSmith API key |
+| `APP_DATABASE_URL` | `sqlite:///./data/app.db` | Database connection string |
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/login` | Authenticate and get JWT |
+| `POST` | `/api/auth/logout` | Invalidate session |
+| `POST` | `/api/chat/` | Synchronous chat (JSON response) |
+| `POST` | `/api/chat/stream` | Streaming chat (SSE) |
+| `POST` | `/api/ingest/file` | Upload document for ingestion |
+| `GET`  | `/api/ingest/jobs/{id}` | Check ingestion job status |
+| `GET`  | `/api/approvals/` | List approval requests |
+| `POST` | `/api/approvals/{id}/decision` | Approve/reject an answer |
+| `GET`  | `/api/audit/` | Query audit logs |
+| `GET`  | `/api/tenants/` | List tenants |
+| `GET`  | `/api/users/` | List users |
+| `GET`  | `/api/health/live` | Liveness probe |
+| `GET`  | `/api/health/ready` | Readiness probe |
+
+See [`docs/streaming-api.md`](docs/streaming-api.md) for the SSE streaming protocol.
+
+## Testing
 
 ```bash
-cd /Users/liweiguang/aiagent/complyra/web
-npm install
-cp .env.example .env
-npm run dev
+pip install -r requirements-dev.txt
+PYTHONPATH=. pytest tests/ -v --cov=app --cov-report=term-missing
 ```
 
-Frontend quality checks:
+## Linting & Formatting
 
 ```bash
-cd /Users/liweiguang/aiagent/complyra/web
-npm run build
-npm run test:e2e
+black --check app/
+isort --check app/
+ruff check app/
 ```
 
-## Production Deployment (AWS)
+## Deployment (AWS)
 
-Recommended order:
+1. Create and secure AWS account ([`docs/aws-account-onboarding.md`](docs/aws-account-onboarding.md))
+2. Prepare production env (`./scripts/aws/00_preflight.sh`)
+3. Terraform plan + policy gate (`./scripts/aws/07_terraform_plan.sh`)
+4. Build/push images (`./scripts/aws/03_build_and_push.sh`)
+5. Deploy services (`./scripts/aws/09_deploy_services_from_release.sh`)
+6. Run smoke tests (`./scripts/aws/05_smoke_test.sh`)
 
-1. Create and secure AWS account (`docs/aws-account-onboarding.md`)
-2. Prepare production env (`./scripts/aws/00_preflight.sh`, `./scripts/aws/01_prepare_prod_env.sh`, `./scripts/aws/04_validate_env_prod.sh`)
-3. Run Terraform full-stack plan and policy gate (`./scripts/aws/07_terraform_plan.sh`, `./scripts/iac/01_conftest_check.sh`)
-4. Build/push images and deploy (`./scripts/aws/03_build_and_push.sh`, `./scripts/aws/09_deploy_services_from_release.sh`)
-5. Run smoke tests (`./scripts/aws/05_smoke_test.sh`)
+Full runbook: [`docs/aws-deployment.md`](docs/aws-deployment.md)
 
-Detailed runbook: `docs/aws-deployment.md`
+## Tech Stack
 
-## Security and Governance
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Backend | FastAPI + Uvicorn | 0.115.8 |
+| Workflow | LangGraph | 0.2.55 |
+| Database | PostgreSQL + SQLAlchemy | 16 / 2.0 |
+| Vector DB | Qdrant | 1.12.6 |
+| Queue | Redis + RQ | 7 / 1.16 |
+| LLM | Ollama | latest |
+| Embeddings | SentenceTransformers / OpenAI | 3.4.1 / 1.0+ |
+| Frontend | React + TypeScript + Vite | 18 / 5.x |
+| Observability | Prometheus + Grafana + LangSmith | - |
+| IaC | Terraform + OPA/Conftest | 1.9.x |
 
-- Tenant-scoped retrieval and access checks
-- JWT auth with secure cookie support
-- Trusted host middleware and security headers
-- Output policy guard for sensitive pattern detection
-- CSV formula injection mitigation on export
-- OPA/Conftest policy-as-code gate for Terraform
+## Contributing
 
-## Documentation Index
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- Architecture: `docs/architecture.md`
-- AWS deployment runbook: `docs/aws-deployment.md`
-- AWS account onboarding: `docs/aws-account-onboarding.md`
-- AWS ownership checklist: `docs/aws-owner-checklist.md`
-- Manual actions (EN): `docs/what-you-need-to-do.md`
-- Manual actions (ZH-CN): `docs/what-you-need-to-do.zh-CN.md`
-- ECS task definitions: `docs/ecs-task-definitions.md`
-- Release and rollback: `docs/release-and-rollback.md`
-- Operations runbook: `docs/operations-runbook.md`
-- Optimization roadmap: `docs/optimization-roadmap.md`
-- Frontend contribution guide: `docs/frontend-contributing.md`
-- UI design tokens: `docs/ui-design-tokens.md`
-- Frontend package readme: `web/README.md`
-- Terraform/IaC guide: `infra/terraform/README.md`
+## Security
 
-## Verification
-
-```bash
-cd /Users/liweiguang/aiagent/complyra
-python3 -m compileall app
-PYTHONPATH=. .venv/bin/pytest -q tests
-./scripts/iac/01_conftest_check.sh
-cd web && npm run build && npm run test:e2e
-```
+See [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT (see `LICENSE`).
+[MIT](LICENSE)

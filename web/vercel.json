@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://complyra-alb-533720957.ap-southeast-1.elb.amazonaws.com/api/:path*"
+    }
+  ]
+}

@@ -28,6 +28,8 @@ const messages: Record<Locale, Dictionary> = {
     "status.retrievalRunning": "Running retrieval...",
     "status.approvalRequired": "Approval required. Waiting for reviewer decision.",
     "status.answerReady": "Answer ready.",
+    "status.generating": "Generating answer...",
+    "status.policyBlocked": "Response blocked by policy.",
     "status.chatFailed": "Chat request failed.",
 
     "status.approvalCompleted": "Approval completed and final answer is now available.",
@@ -107,6 +109,7 @@ const messages: Record<Locale, Dictionary> = {
     "workbench.refreshApproval": "Refresh approval",
     "workbench.approvalId": "Approval ID",
 
+    "workbench.streamingMode": "Streaming mode",
     "workbench.responseTitle": "Response",
     "workbench.noAnswer": "No answer yet.",
     "workbench.noChunks": "No retrieval chunks yet.",
@@ -174,6 +177,8 @@ const messages: Record<Locale, Dictionary> = {
     "status.retrievalRunning": "正在执行检索...",
     "status.approvalRequired": "回答需要审批，等待审核人决策。",
     "status.answerReady": "回答已生成。",
+    "status.generating": "正在生成回答...",
+    "status.policyBlocked": "回答被策略拦截。",
     "status.chatFailed": "对话请求失败。",
 
     "status.approvalCompleted": "审批已完成，最终回答可用。",
@@ -253,6 +258,7 @@ const messages: Record<Locale, Dictionary> = {
     "workbench.refreshApproval": "刷新审批",
     "workbench.approvalId": "审批 ID",
 
+    "workbench.streamingMode": "流式输出",
     "workbench.responseTitle": "回答",
     "workbench.noAnswer": "暂无回答。",
     "workbench.noChunks": "暂无检索片段。",

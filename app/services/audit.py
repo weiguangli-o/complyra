@@ -1,3 +1,9 @@
+"""Audit logging service.
+
+Records all user actions (chat, ingest, approval decisions) for
+compliance and traceability.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

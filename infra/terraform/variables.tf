@@ -28,11 +28,6 @@ variable "public_subnet_cidrs" {
   default     = ["10.40.1.0/24", "10.40.2.0/24"]
 }
 
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets."
-  type        = list(string)
-  default     = ["10.40.11.0/24", "10.40.12.0/24"]
-}
 
 variable "acm_certificate_arn" {
   description = "ACM certificate ARN for HTTPS listener. Leave empty to keep HTTP only."
@@ -108,9 +103,9 @@ variable "db_multi_az" {
 }
 
 variable "db_backup_retention_days" {
-  description = "RDS backup retention in days."
+  description = "RDS backup retention in days. Free tier allows max 1 day."
   type        = number
-  default     = 7
+  default     = 1
 }
 
 variable "db_backup_window" {
@@ -149,54 +144,6 @@ variable "db_performance_insights_enabled" {
   default     = true
 }
 
-variable "redis_node_type" {
-  description = "ElastiCache node type."
-  type        = string
-  default     = "cache.t3.small"
-}
-
-variable "redis_engine_version" {
-  description = "Redis engine version."
-  type        = string
-  default     = "7.1"
-}
-
-variable "redis_parameter_group_name" {
-  description = "Redis parameter group name."
-  type        = string
-  default     = "default.redis7"
-}
-
-variable "redis_num_cache_clusters" {
-  description = "Number of cache clusters in replication group."
-  type        = number
-  default     = 1
-}
-
-variable "redis_at_rest_encryption_enabled" {
-  description = "Enable Redis at-rest encryption."
-  type        = bool
-  default     = true
-}
-
-variable "redis_transit_encryption_enabled" {
-  description = "Enable Redis in-transit encryption."
-  type        = bool
-  default     = true
-}
-
-variable "redis_auth_token" {
-  description = "Optional Redis auth token. Required in stricter security setups."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "redis_apply_immediately" {
-  description = "Apply ElastiCache modifications immediately."
-  type        = bool
-  default     = true
-}
 
 variable "jwt_secret_value" {
   description = "Optional fixed JWT secret string. Leave empty to generate random value."
@@ -243,21 +190,46 @@ variable "app_trusted_hosts" {
 }
 
 variable "app_qdrant_url" {
-  description = "Qdrant base URL."
+  description = "Qdrant base URL. Uses Cloud Map service discovery by default."
   type        = string
   default     = "http://qdrant.internal:6333"
 }
 
-variable "app_ollama_base_url" {
-  description = "Ollama base URL."
+variable "app_llm_provider" {
+  description = "LLM provider: gemini | openai | ollama."
   type        = string
-  default     = "http://ollama.internal:11434"
+  default     = "gemini"
 }
 
-variable "app_ollama_model" {
-  description = "Default Ollama model name."
+variable "app_embedding_provider" {
+  description = "Embedding provider: gemini | openai | sentence-transformers."
   type        = string
-  default     = "qwen2.5:3b-instruct"
+  default     = "gemini"
+}
+
+variable "app_gemini_api_key" {
+  description = "Google Gemini API key."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "app_gemini_chat_model" {
+  description = "Gemini chat model name."
+  type        = string
+  default     = "gemini-2.5-flash"
+}
+
+variable "app_gemini_embedding_model" {
+  description = "Gemini embedding model name."
+  type        = string
+  default     = "gemini-embedding-001"
+}
+
+variable "app_embedding_dimension" {
+  description = "Embedding vector dimension (768 for Gemini, 1536 for OpenAI, 384 for BGE)."
+  type        = number
+  default     = 768
 }
 
 variable "app_require_approval" {
@@ -273,9 +245,9 @@ variable "app_output_policy_enabled" {
 }
 
 variable "app_output_policy_block_patterns" {
-  description = "Output policy regex patterns as APP_OUTPUT_POLICY_BLOCK_PATTERNS (use || delimiter)."
+  description = "Output policy regex patterns as JSON array."
   type        = string
-  default     = "AKIA[0-9A-Z]{16}||ASIA[0-9A-Z]{16}||(?:sk|rk)-[A-Za-z0-9]{20,}"
+  default     = "[\"AKIA[0-9A-Z]{16}\",\"ASIA[0-9A-Z]{16}\",\"(?:sk|rk)-[A-Za-z0-9]{20,}\"]"
 }
 
 variable "app_output_policy_block_message" {
@@ -284,11 +256,6 @@ variable "app_output_policy_block_message" {
   default     = "The generated response was withheld due to policy checks. Please contact an administrator."
 }
 
-variable "app_redis_url_override" {
-  description = "Optional explicit APP_REDIS_URL. Leave empty to use ElastiCache endpoint built by Terraform."
-  type        = string
-  default     = ""
-}
 
 variable "api_task_cpu" {
   description = "Fargate CPU units for API task."

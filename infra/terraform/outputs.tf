@@ -8,11 +8,6 @@ output "public_subnet_ids" {
   value       = aws_subnet.public[*].id
 }
 
-output "private_subnet_ids" {
-  description = "Private subnet IDs"
-  value       = aws_subnet.private[*].id
-}
-
 output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = aws_ecs_cluster.this.name
@@ -21,18 +16,17 @@ output "ecs_cluster_name" {
 output "security_group_ids" {
   description = "Security groups for Complyra services"
   value = {
-    alb    = aws_security_group.alb.id
-    api    = aws_security_group.api.id
-    web    = aws_security_group.web.id
-    worker = aws_security_group.worker.id
-    rds    = aws_security_group.rds.id
-    redis  = aws_security_group.redis.id
-    ollama = aws_security_group.ollama.id
+    alb      = aws_security_group.alb.id
+    api      = aws_security_group.api.id
+    web      = aws_security_group.web.id
+    worker   = aws_security_group.worker.id
+    rds      = aws_security_group.rds.id
+    internal = aws_security_group.internal.id
   }
 }
 
 output "alb_dns_name" {
-  description = "ALB DNS name"
+  description = "ALB DNS name — point your domain CNAME here"
   value       = aws_lb.app.dns_name
 }
 
@@ -51,17 +45,22 @@ output "rds_endpoint" {
   value       = aws_db_instance.postgres.address
 }
 
-output "redis_primary_endpoint" {
-  description = "ElastiCache primary endpoint"
-  value       = aws_elasticache_replication_group.redis.primary_endpoint_address
-}
-
 output "ecs_service_names" {
   description = "ECS service names"
   value = {
     api    = aws_ecs_service.api.name
     worker = aws_ecs_service.worker.name
     web    = aws_ecs_service.web.name
+    qdrant = aws_ecs_service.qdrant.name
+    redis  = aws_ecs_service.redis.name
+  }
+}
+
+output "service_discovery_endpoints" {
+  description = "Cloud Map service discovery endpoints"
+  value = {
+    qdrant = "qdrant.internal:6333"
+    redis  = "redis.internal:6379"
   }
 }
 
@@ -84,14 +83,4 @@ output "sentry_secret_arn" {
   description = "Secrets Manager ARN for Sentry DSN if configured"
   value       = var.app_sentry_dsn != "" ? aws_secretsmanager_secret.sentry[0].arn : null
   sensitive   = true
-}
-
-output "synthetics_canary_name" {
-  description = "CloudWatch Synthetics canary name"
-  value       = var.enable_synthetics ? aws_synthetics_canary.login_chat_approval[0].name : null
-}
-
-output "synthetics_canary_arn" {
-  description = "CloudWatch Synthetics canary ARN"
-  value       = var.enable_synthetics ? aws_synthetics_canary.login_chat_approval[0].arn : null
 }

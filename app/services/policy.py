@@ -1,3 +1,9 @@
+"""Output policy evaluation for generated answers.
+
+Scans LLM output for sensitive patterns (API keys, passwords, private keys)
+and blocks the answer if any pattern matches.
+"""
+
 from __future__ import annotations
 
 import re
@@ -9,6 +15,7 @@ from app.core.config import settings
 
 @dataclass(frozen=True)
 class PolicyEvaluation:
+    """Result of evaluating an answer against output policies."""
     blocked: bool
     matched_rules: list[str]
     answer: str

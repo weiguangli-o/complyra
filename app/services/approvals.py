@@ -1,3 +1,9 @@
+"""Human-in-the-loop approval workflow service.
+
+Manages the lifecycle of approval requests: creation, listing,
+retrieval, and decision recording.
+"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -6,7 +12,10 @@ from uuid import uuid4
 from app.db.audit_db import create_approval, get_approval, list_approvals, update_approval
 
 
-def create_approval_request(*, user_id: str, tenant_id: str, question: str, draft_answer: str) -> str:
+def create_approval_request(
+    *, user_id: str, tenant_id: str, question: str, draft_answer: str
+) -> str:
+    """Create a new pending approval request and return its ID."""
     approval_id = str(uuid4())
     create_approval(
         approval_id=approval_id,

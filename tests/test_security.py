@@ -13,6 +13,10 @@ def test_password_hash_round_trip() -> None:
     assert not verify_password("wrong-password", hashed)
 
 
+def test_verify_password_empty_hash_returns_false() -> None:
+    assert verify_password("anything", "") is False
+
+
 def test_access_token_contains_expected_claims() -> None:
     token = create_access_token(
         subject="alice",
