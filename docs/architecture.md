@@ -1,113 +1,238 @@
-# Architecture Specification
+# Architecture
 
-## 1. System Goals
+## 1. System Overview
 
-This project is designed as a production-ready baseline for enterprise AI assistants that require:
+Complyra is a multi-tenant enterprise RAG (Retrieval-Augmented Generation) system designed for compliance-sensitive environments. It combines vector search, LLM generation, human-in-the-loop approval, and full audit logging into a single deployable platform.
 
-- Private knowledge ingestion and retrieval
-- Controlled response release via human approvals
-- Real RBAC with tenant isolation
-- Compliance audit trails and exportability
-- Operational observability and reliability controls
+```mermaid
+graph TB
+    subgraph Client["Client Layer"]
+        SPA[React SPA]
+        API_CLIENT[API Client / curl]
+    end
 
-## 2. Service Topology
+    subgraph Gateway["API Gateway"]
+        FASTAPI[FastAPI]
+        JWT[JWT Auth]
+        RBAC[Role-Based Access Control]
+        TENANT[Tenant Isolation]
+    end
 
-```text
-[React Web]
-    |
-    v
-[FastAPI API]
-  |-- Auth/RBAC (JWT + role checks)
-  |-- Chat workflow (LangGraph)
-  |-- Audit API
-  |-- Tenant/User management API
-  |-- Ingest API
-    |
-    | enqueue
-    v
-[Redis Queue] -> [RQ Worker] -> [Embedding + Qdrant Upsert]
+    subgraph Workflow["LangGraph Workflow Engine"]
+        direction LR
+        REWRITE[Query Rewrite] --> RETRIEVE[Vector Retrieve]
+        RETRIEVE --> JUDGE[Relevance Judge]
+        JUDGE -->|sub-questions| RETRIEVE
+        JUDGE --> DRAFT[Draft Answer]
+        DRAFT --> POLICY[Policy Gate]
+        POLICY -->|sensitive| APPROVAL[Human Approval]
+        POLICY -->|safe| OUTPUT[Output]
+    end
 
-[PostgreSQL]
-  |-- users, tenants, user_tenants
-  |-- approvals
-  |-- audit_logs
-  |-- ingest_jobs
+    subgraph Services["Service Layer"]
+        LLM_SVC[LLM Service<br/>Ollama / OpenAI / Gemini]
+        EMB_SVC[Embedding Service<br/>BGE / OpenAI / Gemini]
+        INGEST_SVC[Ingest Service<br/>Parse / Chunk / Embed]
+        DOC_SVC[Document Service<br/>KB Management]
+        AUDIT_SVC[Audit Service]
+        POLICY_SVC[Policy Engine]
+    end
 
-[Ollama]
-  |-- draft answer generation
+    subgraph Data["Data Layer"]
+        PG[(PostgreSQL<br/>Users, Approvals,<br/>Audit, Documents)]
+        QD[(Qdrant<br/>Vector Embeddings)]
+        REDIS[(Redis<br/>Job Queue)]
+        FS[File Storage<br/>Uploads / Previews]
+    end
 
-[Observability]
-  |-- /metrics -> Prometheus -> Grafana
-  |-- exceptions -> Sentry (optional)
-  |-- CloudWatch Synthetics canary (login/chat/approval journey)
+    subgraph Worker["Background Worker"]
+        RQ[RQ Worker]
+    end
+
+    subgraph Observability["Observability"]
+        PROM[Prometheus]
+        GRAF[Grafana]
+        LS[LangSmith]
+        SENTRY[Sentry]
+    end
+
+    SPA --> FASTAPI
+    API_CLIENT --> FASTAPI
+    FASTAPI --> JWT --> RBAC --> TENANT
+    TENANT --> Workflow
+    Workflow --> LLM_SVC
+    Workflow --> EMB_SVC
+    Workflow --> POLICY_SVC
+    FASTAPI --> DOC_SVC
+    FASTAPI --> AUDIT_SVC
+    FASTAPI --> INGEST_SVC
+    INGEST_SVC -->|enqueue| REDIS
+    REDIS --> RQ
+    RQ --> EMB_SVC
+    RQ --> QD
+    RQ --> PG
+    RQ --> FS
+    EMB_SVC --> QD
+    DOC_SVC --> PG
+    AUDIT_SVC --> PG
+    LLM_SVC --> QD
+    FASTAPI -.-> PROM --> GRAF
+    Workflow -.-> LS
+    FASTAPI -.-> SENTRY
 ```
+
+## 2. Design Principles
+
+| Principle | Implementation |
+|-----------|---------------|
+| **Multi-tenancy** | Every data access scoped by `tenant_id` at API, SQL, and vector DB layers |
+| **Separation of concerns** | Routes → Services → DB layers with clear boundaries |
+| **Pluggable providers** | Embedding and LLM providers are interchangeable via config |
+| **Human-in-the-loop** | Configurable approval gates at document, tenant, and global levels |
+| **Auditability** | Every action logged with user, tenant, timestamp, and full I/O |
+| **Observable** | Prometheus metrics, LangSmith traces, Sentry errors |
+| **Cloud-native** | Docker containers, ECS Fargate, Terraform IaC |
 
 ## 3. Layered Backend Design
 
-- `app/api/routes`: HTTP interface and request/response contracts
-- `app/api/deps`: auth context, tenant scoping, role guards
-- `app/services`: domain logic (workflow, LLM, retrieval, ingest, audit)
-- `app/db`: persistence models and DB operations
-- `app/models`: Pydantic schemas for API boundaries
-- `app/core`: config, security utilities, middleware, logging, metrics
+```
+┌─────────────────────────────────────────────────────────┐
+│  app/api/routes/    HTTP handlers and request validation │
+├─────────────────────────────────────────────────────────┤
+│  app/api/deps.py    Auth, tenant scoping, role guards   │
+├─────────────────────────────────────────────────────────┤
+│  app/services/      Domain logic and business rules     │
+├─────────────────────────────────────────────────────────┤
+│  app/db/            Persistence (SQLAlchemy + Qdrant)   │
+├─────────────────────────────────────────────────────────┤
+│  app/models/        Pydantic schemas (API contracts)    │
+├─────────────────────────────────────────────────────────┤
+│  app/core/          Config, security, logging, metrics  │
+└─────────────────────────────────────────────────────────┘
+```
 
-This separation supports independent testing, controlled change scope, and clean ownership boundaries.
+**Why this matters**: Each layer has a single responsibility. Routes handle HTTP concerns, services contain business logic, and DB handles persistence. This makes testing straightforward — services can be tested without HTTP, and DB operations can be tested without business logic.
 
-## 4. Data Isolation and Access Model
+## 4. Multi-Tenant Data Isolation
 
-- Tenant IDs are explicit in request scope (`X-Tenant-ID`)
-- Access is enforced against `user_tenants` assignments
-- Approvals and audit queries are restricted to accessible tenants
-- Retrieval filters Qdrant results by `tenant_id`
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API (FastAPI)
+    participant D as Database
+    participant Q as Qdrant
 
-## 5. Workflow Design
+    C->>A: Request + JWT + X-Tenant-ID
+    A->>A: Verify JWT token
+    A->>D: Check user_tenants (user_id, tenant_id)
+    D-->>A: Access granted / denied
+    A->>D: SELECT ... WHERE tenant_id = ?
+    D-->>A: Tenant-scoped results
+    A->>Q: Search(filter: tenant_id = ?)
+    Q-->>A: Tenant-scoped vectors
+    A-->>C: Response
+```
 
-### 5.1 Chat Flow
+Key isolation points:
+- **API layer**: `get_tenant_id()` dependency verifies the user has access to the requested tenant
+- **Database**: Every query includes `WHERE tenant_id = :tenant_id`
+- **Qdrant**: Payload filter `{"must": [{"key": "tenant_id", "match": {"value": tenant_id}}]}`
 
-1. Retrieve tenant-scoped chunks from Qdrant
-2. Build prompt with injection-aware constraints
-3. Generate draft answer from Ollama
-4. Apply output policy checks (secret leakage / high-risk pattern detection)
-5. Route to approval node when `APP_REQUIRE_APPROVAL=true` and policy allows
-6. Return either `pending_approval` or final answer
+## 5. Request Processing Pipeline
 
-### 5.2 Approval Flow
+```mermaid
+graph LR
+    REQ[HTTP Request] --> MW1[Request ID<br/>Middleware]
+    MW1 --> MW2[Security Headers<br/>Middleware]
+    MW2 --> MW3[Trusted Host<br/>Middleware]
+    MW3 --> MW4[CORS<br/>Middleware]
+    MW4 --> AUTH[JWT Auth<br/>Dependency]
+    AUTH --> ROLE[Role Check<br/>Dependency]
+    ROLE --> TENANT[Tenant Check<br/>Dependency]
+    TENANT --> HANDLER[Route Handler]
+    HANDLER --> SVC[Service Layer]
+    SVC --> DB[Database / Qdrant]
+    HANDLER --> AUDIT[Audit Log]
+    HANDLER --> RES[HTTP Response]
+```
 
-- Approvals are persisted with full decision metadata
-- Only `admin` or `auditor` can decide pending items
-- Users can query decision outcome via approval result endpoint
+## 6. Document Ingestion Pipeline
 
-## 6. Security Controls
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as API
+    participant R as Redis Queue
+    participant W as RQ Worker
+    participant E as Embedding Service
+    participant Q as Qdrant
+    participant D as Database
+    participant F as File Storage
 
-- JWT validation with role assertions
-- Optional secure session cookie (`HttpOnly`, `SameSite`, configurable domain)
-- Trusted host middleware
-- Security response headers
-- Ingest extension allow-list and sanitized filenames
-- CSV export formula injection mitigation in audit export
+    U->>A: POST /ingest/file (multipart)
+    A->>A: Validate extension, size
+    A->>F: Save to upload storage
+    A->>D: Create IngestJob (status=queued)
+    A->>R: Enqueue job
+    A-->>U: {job_id, status: "queued"}
 
-## 7. Reliability and Operations
+    R->>W: Dequeue job
+    W->>D: Update status=processing
+    W->>W: Parse document (PDF/TXT/OCR)
+    W->>W: Chunk text (smart/fixed)
+    W->>E: Embed chunks
+    E-->>W: Vectors
+    W->>Q: Upsert vectors with metadata
+    W->>D: Create Document record
+    W->>F: Move to preview storage
+    W->>D: Update IngestJob (status=completed)
 
-- Health endpoints:
-  - `/api/health/live`
-  - `/api/health/ready` (DB + Qdrant + Ollama)
-- Alembic migrations executed on container startup
-- Ingest is asynchronous and resumable by job status tracking
-- Structured request logging and request ID propagation
-- IaC policy gate (OPA/Conftest) for Terraform changes in CI
+    U->>A: GET /ingest/jobs/{id}
+    A->>D: Query IngestJob
+    A-->>U: {status: "completed", chunks_indexed: N}
+```
+
+## 7. Approval Policy Resolution
+
+The approval decision follows a priority chain, evaluated from most specific to least:
+
+```mermaid
+graph TD
+    Q[Should require approval?]
+    Q --> D{Document has<br/>approval_override?}
+    D -->|always| YES[✓ Require Approval]
+    D -->|never| NO[✗ Skip Approval]
+    D -->|null/inherit| T{Tenant policy<br/>approval_mode?}
+    T -->|all| YES
+    T -->|none| NO
+    T -->|sensitive| S{Source documents<br/>contain sensitive?}
+    S -->|yes| YES
+    S -->|no| NO
+    T -->|not set| G{Global setting<br/>APP_REQUIRE_APPROVAL?}
+    G -->|true| YES
+    G -->|false| NO
+```
 
 ## 8. Scalability Path
 
-- Horizontal scale API and worker independently
-- Move Qdrant to dedicated high-IO nodes
-- Use managed PostgreSQL and Redis
-- Swap or extend LLM provider through service adapter pattern
-- Add policy engine (PBAC/ABAC), DLP, and PII redaction pipeline
+| Component | Current | Scale Strategy |
+|-----------|---------|---------------|
+| API | Single container | Horizontal (ECS auto-scaling behind ALB) |
+| Worker | Single container | Horizontal (scale by Redis queue depth) |
+| PostgreSQL | Single instance | Managed RDS with read replicas |
+| Redis | Single instance | ElastiCache with failover |
+| Qdrant | Single instance | Vertical → distributed (sharding) |
+| LLM | Ollama (local) | Switch to API providers (OpenAI/Gemini) for elastic scale |
+| Embeddings | Local SentenceTransformer | Switch to API providers or GPU instances |
 
-## 9. Non-Goals of This Repository
+## 9. Non-Goals
 
-- Full SSO/SAML enterprise identity integration
-- Full policy engine and legal retention lifecycle
-- Multi-region active-active conflict resolution
+This repository intentionally does not include:
 
-These are expected next-stage enhancements after MVP-to-production adoption.
+- SSO/SAML/OIDC enterprise identity integration
+- Full DLP (Data Loss Prevention) pipeline
+- Multi-region active-active replication
+- Complex ABAC/PBAC policy engine
+- Legal document retention lifecycle management
+
+These are expected next-stage enhancements after production adoption.
