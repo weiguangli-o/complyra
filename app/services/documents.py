@@ -8,9 +8,7 @@ from typing import Optional
 
 from app.db.audit_db import (
     bulk_update_documents_db,
-)
-from app.db.audit_db import create_document_record as _create_doc
-from app.db.audit_db import (
+    create_document_record,
     get_document,
     list_documents_db,
     update_document_db,
@@ -35,7 +33,7 @@ def create_document(
     created_by: str,
     storage_path: Optional[str] = None,
 ) -> Document:
-    return _create_doc(
+    return create_document_record(
         document_id=document_id,
         tenant_id=tenant_id,
         filename=filename,
