@@ -262,7 +262,7 @@ builder.add_node("draft", draft_node)
 builder.add_node("approval", approval_node)
 builder.add_node("final", final_node)
 
-# Wire edges: START -> rewrite -> retrieve -> judge -> (conditional) -> draft -> (conditional) -> END
+# Wire edges: START -> rewrite -> retrieve -> judge -> draft -> END
 builder.add_edge(START, "rewrite")
 builder.add_edge("rewrite", "retrieve")
 builder.add_edge("retrieve", "judge")

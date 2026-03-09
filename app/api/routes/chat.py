@@ -128,6 +128,7 @@ async def chat_stream(
         # Step 1: Retrieve with ReAct loop (up to max_retrieval_attempts)
         all_matches = []
         seen_texts: set[str] = set()
+        sub_questions: list[str] = []
         max_attempts = settings.max_retrieval_attempts if settings.react_retrieval_enabled else 1
 
         for attempt in range(1, max_attempts + 1):

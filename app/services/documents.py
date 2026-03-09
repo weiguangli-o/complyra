@@ -12,7 +12,6 @@ from app.db.audit_db import (
 from app.db.audit_db import create_document_record as _create_doc
 from app.db.audit_db import (
     get_document,
-    get_documents_by_ids,
     list_documents_db,
     update_document_db,
 )

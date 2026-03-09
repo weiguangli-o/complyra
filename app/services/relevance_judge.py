@@ -45,7 +45,7 @@ def _parse_judge_response(raw: str) -> dict[str, Any]:
     # Strip markdown code fences if present
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines)
     try:
         result = json.loads(text)
@@ -70,7 +70,8 @@ _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 async def _judge_gemini(question: str, contexts: list[str]) -> dict[str, Any]:
     prompt = _JUDGE_PROMPT.format(question=question, contexts=_format_contexts(contexts))
-    url = f"{_GEMINI_API_BASE}/{settings.gemini_chat_model}:generateContent?key={settings.gemini_api_key}"
+    model = settings.gemini_chat_model
+    url = f"{_GEMINI_API_BASE}/{model}:generateContent?key={settings.gemini_api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},

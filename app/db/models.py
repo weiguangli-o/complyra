@@ -78,7 +78,7 @@ class User(Base):
     user_id: Mapped[str] = mapped_column(
         String(128), primary_key=True, default=lambda: str(uuid4())
     )
-    # The login name; must be unique across the entire system. Indexed for fast lookups during login.
+    # Login name; must be unique. Indexed for fast lookups during login.
     username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     # The password is never stored in plain text — only a secure hash.
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)

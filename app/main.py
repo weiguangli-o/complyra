@@ -36,7 +36,7 @@ async def app_lifespan(_: FastAPI):
     )
     if not ensure_model_ready():
         logger.warning(
-            "Ollama model pre-pull failed. The service will still start, but first requests may fail."
+            "Ollama model pre-pull failed. Service will start, " "but first requests may fail."
         )
     yield
 

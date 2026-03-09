@@ -30,14 +30,14 @@ import uuid
 from functools import lru_cache
 from typing import List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
-
 from langsmith import traceable
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
 from app.core.config import settings
 from app.services.embeddings import embed_texts, get_embedder
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)

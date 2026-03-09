@@ -34,7 +34,8 @@ _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 async def _rewrite_gemini(query: str) -> str:
     prompt = _REWRITE_PROMPT.format(query=query)
-    url = f"{_GEMINI_API_BASE}/{settings.gemini_chat_model}:generateContent?key={settings.gemini_api_key}"
+    model = settings.gemini_chat_model
+    url = f"{_GEMINI_API_BASE}/{model}:generateContent?key={settings.gemini_api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0},
