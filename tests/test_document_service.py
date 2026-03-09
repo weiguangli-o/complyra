@@ -32,7 +32,7 @@ class TestDetectMimeType:
 
 
 class TestCreateDocument:
-    @patch("app.services.documents._create_doc")
+    @patch("app.services.documents.create_document_record")
     def test_create_document_calls_dal(self, mock_create):
         from app.services.documents import create_document
 

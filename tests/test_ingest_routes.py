@@ -111,9 +111,10 @@ class TestIngestFile:
         assert exc_info.value.status_code == 413
 
     @pytest.mark.asyncio
+    @patch("app.api.routes.ingest.update_ingest_job")
     @patch("app.api.routes.ingest.get_ingest_queue")
     @patch("app.api.routes.ingest.create_ingest_job")
-    async def test_ingest_async_enqueue_failure(self, mock_create_job, mock_queue, monkeypatch, tmp_path):
+    async def test_ingest_async_enqueue_failure(self, mock_create_job, mock_queue, mock_update_job, monkeypatch, tmp_path):
         monkeypatch.setattr("app.api.routes.ingest.settings.ingest_async_enabled", True)
         monkeypatch.setattr("app.api.routes.ingest.settings.ingest_max_file_size_mb", 20)
         monkeypatch.setattr("app.api.routes.ingest.settings.ingest_storage_path", str(tmp_path))
